@@ -19,11 +19,16 @@ def fetch(url):
     with urllib.request.urlopen(req, timeout=60) as r:
         return r.read()
 
-def send(chat_id, text):
-    data = urllib.parse.urlencode({
-        "chat_id": chat_id, "text": text,
+def send(chat, text):
+    # chat may be "chat_id" or "chat_id:thread_id" (Telegram topic in a forum group)
+    parts = str(chat).split(":")
+    payload = {
+        "chat_id": parts[0], "text": text,
         "disable_web_page_preview": "false",
-    }).encode()
+    }
+    if len(parts) > 1 and parts[1]:
+        payload["message_thread_id"] = parts[1]
+    data = urllib.parse.urlencode(payload).encode()
     req = urllib.request.Request(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data=data)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
