@@ -22,7 +22,7 @@ jobs:
           TWITTER_AUTH_TOKEN: ${{ secrets.TWITTER_AUTH_TOKEN }}
           TWITTER_COOKIE: ${{ secrets.TWITTER_COOKIE }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Wait for RSSHub
         run: |
           for i in $(seq 1 40); do
