@@ -25,7 +25,9 @@ MAX_SEEN = 300
 # Phrases matched as plain substrings (case-insensitive) and hashtags
 # matched as whole tokens, so "#ad" does not fire on "#advice".
 AD_PHRASES = ["paid partnership", "paid promotion", "sponsored post",
-              "promo code", "discount code", "use code"]
+              "promo code", "discount code", "use code",
+              "rainbet", "stake.com", "bet365", "draftkings", "fanduel",
+              "betmgm", "prizepicks"]
 AD_TAGS = ["#ad", "#sponsored", "#paidpartnership", "#paidpromotion"]
 _extra = os.environ.get("AD_MARKERS", "")
 if _extra:
@@ -103,7 +105,8 @@ def items_for(account):
         link = (it.findtext("link") or "").strip()
         title = (it.findtext("title") or "").strip()
         guid = (it.findtext("guid") or link).strip()
-        out.append({"id": guid, "link": link, "title": title})
+        desc = re.sub(r"<[^>]+>", " ", it.findtext("description") or "")
+        out.append({"id": guid, "link": link, "title": title, "desc": desc})
     return out  # RSSHub returns newest first
 
 def poll_once(state):
@@ -130,7 +133,7 @@ def poll_once(state):
         seen = set(entry["seen"])
         new = [it for it in items if it["id"] not in seen]
         for it in reversed(new):  # oldest new first
-            if is_ad(it["title"]) or is_ad(it["link"]):
+            if is_ad(it["title"]) or is_ad(it.get("desc", "")) or is_ad(it["link"]):
                 print(f"[{acct}] skipped paid partnership {it['id']}", flush=True)
                 continue
             text = f"@{acct}\n{it['title']}\n{it['link']}".strip()
