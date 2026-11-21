@@ -9,7 +9,7 @@ the channel with old tweets), then posts only new items after that.
 Paid-partnership / ad tweets (disclosed in the tweet text) are skipped:
 they are marked seen but never posted.
 """
-import json, os, re, sys, time, urllib.request, urllib.parse
+import io, json, os, re, sys, time, urllib.request, urllib.parse
 import xml.etree.ElementTree as ET
 
 BASE = os.environ.get("RSSHUB_BASE", "http://rsshub:1200").rstrip("/")
@@ -43,6 +43,40 @@ def is_ad(text):
         return True
     tokens = re.findall(r"#\w+", t)
     return any(tag in tokens for tag in AD_TAGS)
+
+# --- OCR bet-slip screening -------------------------------------------
+# Betting slips are images; their text is invisible to the filters above.
+# When tesseract + Pillow are available (the workflow installs them), OCR
+# the first image of each new post and screen the recognised text.
+try:
+    from PIL import Image
+    import pytesseract
+    OCR_OK = True
+except Exception:
+    OCR_OK = False
+
+BET_BRANDS = ["rainbet", "stake.com", "bet365", "draftkings", "fanduel",
+              "betmgm", "prizepicks"]
+BET_PHRASES = ["my bets", "total odds", "potential win", "cashed out",
+               "cash out", "ticket id", "bet slip", "betslip"]
+
+def is_betslip(ocr):
+    t = (ocr or "").lower()
+    if any(b in t for b in BET_BRANDS):
+        return True
+    hits = sum(1 for p in BET_PHRASES if p in t)
+    return hits >= 2
+
+def ocr_first_image(item):
+    if not OCR_OK or not item.get("imgs"):
+        return ""
+    try:
+        raw = fetch(item["imgs"][0])
+        img = Image.open(io.BytesIO(raw))
+        return pytesseract.image_to_string(img) or ""
+    except Exception as e:
+        print(f"OCR failed for {item['id']}: {e}", flush=True)
+        return ""
 
 # --- Telegram ----------------------------------------------------------
 def fetch(url):
@@ -105,8 +139,11 @@ def items_for(account):
         link = (it.findtext("link") or "").strip()
         title = (it.findtext("title") or "").strip()
         guid = (it.findtext("guid") or link).strip()
-        desc = re.sub(r"<[^>]+>", " ", it.findtext("description") or "")
-        out.append({"id": guid, "link": link, "title": title, "desc": desc})
+        raw_desc = it.findtext("description") or ""
+        desc = re.sub(r"<[^>]+>", " ", raw_desc)
+        imgs = re.findall(r'<img[^>]+src="([^"]+)"', raw_desc)
+        out.append({"id": guid, "link": link, "title": title, "desc": desc,
+                    "imgs": imgs})
     return out  # RSSHub returns newest first
 
 def poll_once(state):
@@ -136,6 +173,10 @@ def poll_once(state):
             if is_ad(it["title"]) or is_ad(it.get("desc", "")) or is_ad(it["link"]):
                 print(f"[{acct}] skipped paid partnership {it['id']}", flush=True)
                 continue
+            slip_text = ocr_first_image(it)
+            if slip_text and is_betslip(slip_text):
+                print(f"[{acct}] skipped bet slip (OCR) {it['id']}", flush=True)
+                continue
             text = f"@{acct}\n{it['title']}\n{it['link']}".strip()
             for chat in CHATS:
                 try:
@@ -153,6 +194,7 @@ def poll_once(state):
 def main():
     state = load_state()
     if os.environ.get("ONCE") == "1":
+        print(f"OCR screening: {'on' if OCR_OK else 'off'}", flush=True)
         poll_once(state); return
     print(f"Polling {ACCOUNTS} -> {CHATS} every {POLL}s", flush=True)
     while True:
