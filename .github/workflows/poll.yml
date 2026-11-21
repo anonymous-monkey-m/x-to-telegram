@@ -1,7 +1,7 @@
 name: x-to-telegram
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *"  # Runs every 15 minutes
   workflow_dispatch: {}
 permissions:
   contents: write
@@ -28,6 +28,11 @@ jobs:
           for i in $(seq 1 40); do
             curl -sf http://127.0.0.1:1200/ >/dev/null && echo "RSSHub up" && break || sleep 5
           done
+      - name: Install OCR (bet-slip screening)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr
+          pip install --quiet pytesseract pillow
       - name: Poll once
         env:
           ONCE: "1"
