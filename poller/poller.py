@@ -67,16 +67,42 @@ def is_betslip(ocr):
     hits = sum(1 for p in BET_PHRASES if p in t)
     return hits >= 2
 
-def ocr_first_image(item):
+def image_variants(url):
+    """Yield the URL plus pbs.twimg.com size variants: the exact URL the
+    feed carries sometimes 404s while another size of the same image
+    works, and a 404 must not silently disable screening."""
+    yield url
+    if "pbs.twimg.com" in url:
+        base = re.sub(r":\w+$", "", url.split("?")[0])
+        seen_q = set()
+        for name in ("orig", "large", "medium"):
+            v = f"{base}?format=jpg&name={name}"
+            if v != url and v not in seen_q:
+                seen_q.add(v)
+                yield v
+
+def ocr_images(item):
+    """OCR up to the first 3 images of a post, trying URL variants.
+    Returns the combined recognised text ("" if nothing could be read)."""
     if not OCR_OK or not item.get("imgs"):
         return ""
-    try:
-        raw = fetch(item["imgs"][0])
-        img = Image.open(io.BytesIO(raw))
-        return pytesseract.image_to_string(img) or ""
-    except Exception as e:
-        print(f"OCR failed for {item['id']}: {e}", flush=True)
-        return ""
+    texts = []
+    for url in item["imgs"][:3]:
+        got = None
+        for cand in image_variants(url):
+            try:
+                got = fetch(cand)
+                break
+            except Exception as e:
+                print(f"OCR image fetch failed: {cand} ({e})", flush=True)
+        if got is None:
+            continue
+        try:
+            img = Image.open(io.BytesIO(got))
+            texts.append(pytesseract.image_to_string(img) or "")
+        except Exception as e:
+            print(f"OCR failed for {item['id']}: {e}", flush=True)
+    return "\n".join(texts)
 
 # --- Telegram ----------------------------------------------------------
 def fetch(url):
@@ -173,7 +199,7 @@ def poll_once(state):
             if is_ad(it["title"]) or is_ad(it.get("desc", "")) or is_ad(it["link"]):
                 print(f"[{acct}] skipped paid partnership {it['id']}", flush=True)
                 continue
-            slip_text = ocr_first_image(it)
+            slip_text = ocr_images(it)
             if slip_text and is_betslip(slip_text):
                 print(f"[{acct}] skipped bet slip (OCR) {it['id']}", flush=True)
                 continue
